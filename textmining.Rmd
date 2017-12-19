@@ -1,0 +1,203 @@
+---
+title: "SMS Spam Classifier"
+author: "Nitant Agarwal"
+date: "18 December 2017"
+output: html_document
+---
+
+
+Loading Required Packages
+```{r message=FALSE, warning=FALSE}
+setwd("B:/utd/comp/SMSSPAM")
+
+library(e1071)
+library(tm)
+library(qdap)
+library(dplyr)
+library(pander)
+library(gmodels)
+library(RWeka)
+library(wordcloud)
+library(caret)
+library(plotrix)
+
+```
+
+Reading the dataset and converting sms type to factor
+```{r}
+sms_data <- read.csv("SPAM text message.csv", stringsAsFactors = FALSE)
+sms_data$Category <- as.factor(sms_data$Category)
+```
+
+Defining necessary functions
+```{r}
+#This function cleans the text corpus
+clean_corpus <- function(corpus){ corpus %>%
+    tm_map(stripWhitespace) %>%   #strips white spaces in the text
+    tm_map(removePunctuation) %>%  # removes punctuatuon marks 
+    tm_map(content_transformer(tolower)) %>%  # converts text to lowercase
+    tm_map(removeWords, stopwords("en")) %>%  # removes commonly used words which do not provide any insights
+    tm_map(removeNumbers) %>%    #As we do not have anything to do with numbers, we will remove them 
+    tm_map(content_transformer(replace_abbreviation))   # replaces abbreviations with their full word
+}
+
+
+#This function is used to get the proportion of each level in a variable
+freq <- function(x, caption) {
+  round(100*prop.table(table(x)), 1)
+}
+
+
+#
+convert_counts <- function(x){
+  x <- ifelse(x > 0, 1, 0)
+  x <- factor(x, levels = c(0,1), labels = c("no", "yes"))
+}
+
+```
+
+#Visualizations 
+Visulaizations can reveal a lot about the data and is a very good first step tp understand the data. Here, we will try to find the most common words found in both, spam and ham text messages by constructing a wordcloud as the wrod clouds give greater prominence to words that appear more frequently in the source text.  
+
+**WordClouds**
+To construct a word cloud, first we need to get the data ready. We will create two separate datasets for ham and spams messages. Then, create a volatile corpus and transform it to a Term Document format. 
+```{r}
+sms_ham <- subset(sms_data, sms_data$Category == "ham")
+sms_spam <- subset(sms_data, sms_data$Category == "spam")
+
+sms_corpus_ham <- VCorpus(VectorSource(sms_ham$Message))
+sms_corpus_spam <- VCorpus(VectorSource(sms_spam$Message))
+
+sms_clean_ham <- clean_corpus(sms_corpus_ham)
+sms_clean_spam <- clean_corpus(sms_corpus_spam)
+
+sms_ham_tdm <- TermDocumentMatrix(sms_clean_ham)
+sms_spam_tdm <- TermDocumentMatrix(sms_clean_spam)
+
+ham_m <- as.matrix(sms_ham_tdm)
+spam_m <- as.matrix(sms_spam_tdm)
+
+```
+
+
+Word Clouds for SPAM and HAM messages type
+```{r}
+term_freq_ham <- rowSums(ham_m)
+word_freq_ham <- data.frame(term = names(term_freq_ham), num = term_freq_ham)
+wordcloud(word_freq_ham$term, word_freq_ham$num, max.words = 100, colors = c("tan1", "olivedrab", "tomato3"))
+
+term_freq_spam <- rowSums(spam_m)
+word_freq_spam <- data.frame(term = names(term_freq_spam), num = term_freq_spam)
+wordcloud(word_freq_ham$term, word_freq_ham$num, max.words = 100, colors = c("grey50", "blue", "blueviolet"))
+
+```
+
+Now lets build a comparison cloud. For this we will merge the two datasets and build a comparison cloud to see which words are found the most in both types of messages. 
+```{r}
+all_ham <- paste(sms_ham$Message, collapse = " ")
+all_spam <- paste(sms_spam$Message, collapse = " ")
+
+all <- c(all_ham, all_spam)
+
+# Create all_corpus
+all_corpus <- VCorpus(VectorSource(all))
+all_clean <- clean_corpus(all_corpus)
+all_tdm <- TermDocumentMatrix(all_clean)
+colnames(all_tdm) <- c("ham", "spam")
+all_m <- as.matrix(all_tdm)
+
+  
+comparison.cloud(all_m, colors = c("orange", "blue"), max.words = 100)
+
+```
+
+
+Lets look at the top 25 common words in both types of sms and the frequency of the words for each type of sms 
+```{r}
+common_words <- subset(all_m, all_m[, 1] > 0 & all_m[, 2] > 0)
+difference <- abs(common_words[, 1] - common_words[, 2])
+
+common_words <- cbind(common_words, difference)
+
+common_words <- common_words[order(common_words[, 3], decreasing = TRUE), ]
+
+top25_df <- data.frame(x = common_words[1:25, 1], 
+                       y = common_words[1:25, 2], 
+                       labels = rownames(common_words[1:25, ]))
+
+pyramid.plot(top25_df$x, top25_df$y, labels = top25_df$labels, 
+             gap = 25, top.labels = c("Ham", "Words", "Spam"), 
+             main = "Words in Common", laxlab = NULL, 
+             raxlab = NULL, unit = NULL)
+```
+
+
+#Part-2: Model Building
+
+```{r}
+#Creating training and test datasets
+index <- createDataPartition(sms_data$Category, p = 0.75, list = FALSE)
+sms_train <- sms_data[index, ]
+sms_test <- sms_data[-index, ]
+
+#checking the proportion of spam and ham messages in both training and test dataset
+freq_orign <- freq(sms_data$Category)
+freq_train <- freq(sms_data[index, ]$Category)
+freq_test <- freq(sms_data[-index, ]$Category)
+  
+freq_df <- as.data.frame(cbind(freq_orign, freq_train, freq_test))
+colnames(freq_df) <- c("Original", "Train", "Test")
+
+pander(freq_df)
+
+```
+
+
+```{r}
+#Creating a text corpus for training and test dataset. 
+sms_corpus_train <- VCorpus(VectorSource(sms_train$Message))
+sms_corpus_test <- VCorpus(VectorSource(sms_test$Message))
+
+```
+
+
+```{r}
+#The corpus is cleaned and trasnformed to Document Term matrix. The DocumentTermMatrix() function will take a corpus and create a data structure called a sparse matrix, in which the rows of the matrix indicate documents (that is, SMS messages) and the columns indicate terms (that is, words). Each cell in the matrix stores a number indicating a count of the times the word indicated by the column appears in the document indicated by the row.
+
+train_corpus_clean <- clean_corpus(sms_corpus_train)
+test_corpus_clean <- clean_corpus(sms_corpus_test)
+sms_train_dtm <- DocumentTermMatrix(train_corpus_clean)
+sms_test_dtm <- DocumentTermMatrix(test_corpus_clean)
+
+#Removing words from the corpus which appear less than 5 times i.e. it will contain only words which appear in atleast 5 text messages
+sms_dict <- findFreqTerms(sms_train_dtm, lowfreq = 5)
+sms_newtrain <- DocumentTermMatrix(train_corpus_clean, list(dictionary = sms_dict))
+sms_newtest <- DocumentTermMatrix(test_corpus_clean, list(dictionary = sms_dict))
+
+```
+ 
+ 
+```{r}
+#We are using the navie bayes classifier to predict the type of message. The navie bayes classifier  is typically trained on data with categorical features. This poses a problem since the cells in the sparse matrix indicate a count of the times a word appears in a message. We will change this to a factor variable that simply indicates yes or no depending on whether the word appears at all.
+
+sms_newtrain <- apply(sms_newtrain, MARGIN = 2, convert_counts)
+sms_newtest <- apply(sms_newtest, MARGIN = 2, convert_counts)
+
+classifier <- e1071::naiveBayes(sms_newtrain, sms_train$Category)
+predicted <- predict(classifier, sms_newtest)
+
+#generating a confustion matrix to assess the performace of our model
+CrossTable(predicted, sms_test$Category, prop.c = FALSE, dnn = c("Predicted", "Actual"))
+```
+Out 186 spam messages, 19 were missclassified as ham messages. 
+
+```{r}
+#We will here try to imrpove the perfomance of the model by using a lapalce term 
+classifier2 <- e1071::naiveBayes(sms_newtrain, sms_train$Category, laplace = 1)
+predicted2 <- predict(classifier, sms_newtest)
+
+CrossTable(predicted2, sms_test$Category, prop.c = FALSE, dnn = c("Predicted", "Actual"))
+
+```
+We can see that, there was no improvement in the model. From this model, we have one more ham message classified as spam message. 
+
