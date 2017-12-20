@@ -5,8 +5,8 @@ date: "18 December 2017"
 output: html_document
 ---
 
+This is a simple text mining project implementing the bag of words method. I am going to construct a unigram model. A unigram model is chosen because it is easy to implement, accuracy achieved is quite good, plus the words in the vocabulary are independant to each other.
 
-Loading Required Packages
 ```{r message=FALSE, warning=FALSE}
 setwd("B:/utd/comp/SMSSPAM")
 
@@ -38,7 +38,9 @@ clean_corpus <- function(corpus){ corpus %>%
     tm_map(content_transformer(tolower)) %>%  # converts text to lowercase
     tm_map(removeWords, stopwords("en")) %>%  # removes commonly used words which do not provide any insights
     tm_map(removeNumbers) %>%    #As we do not have anything to do with numbers, we will remove them 
-    tm_map(content_transformer(replace_abbreviation))   # replaces abbreviations with their full word
+    tm_map(content_transformer(replace_abbreviation)) %>% # replaces abbreviations with their full word
+    tm_map(PlainTextDocument) %>%
+    tm_map(stemDocument, language = "english")
 }
 
 
@@ -199,5 +201,13 @@ predicted2 <- predict(classifier, sms_newtest)
 CrossTable(predicted2, sms_test$Category, prop.c = FALSE, dnn = c("Predicted", "Actual"))
 
 ```
-We can see that, there was no improvement in the model. From this model, we have one more ham message classified as spam message. 
+We can see that, there was no improvement in the model. 
+
+We can try other methods to build better and more complex models. Follwoing are couple of methods that can be used to build other models:
+
+1) One way to go about would be to construct a N-gram model. For e.g. a for a bi-gram model n is set to 2, so two consecutive words can be chosen. The bigram model performs better than the unigram model because the bigram models take into account the probability of the next word and sometimes two words together give a different context to the meaning compared to what those two words separately mean and it helps to capture such differences.  
+
+2) Another popular method is known as TF-IDF method. TF-IDF is known as Term Frequency Inverse Document Frequency. This technique believes that, from a document corpus, a learning algorithm gets more information from the rarely occurring terms than frequently occurring terms.  Using a weighted scheme, this technique helps to score the importance of terms. The terms occurring frequently are weighted lower and the terms occurring rarely get weighted higher. 
+Loading Required Packages
+
 
