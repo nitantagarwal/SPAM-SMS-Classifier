@@ -3,7 +3,7 @@
 # Description:
 A classifier to identify spam and ham messages build using navie bayes. 
 
-You can view my project on rpubs. The link is below
+You can view my project on rpubs. Link:
 http://rpubs.com/nitant_agarwal/343217
 
 # Approach:
